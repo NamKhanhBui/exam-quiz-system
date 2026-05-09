@@ -21,7 +21,6 @@ function Login({ onLogin, onSwitchRegister }) {
     setLoading(true);
     try {
       const r = await axios.post(`${API}/auth/login`, { username: u, password: p });
-      // ✅ Lưu thông tin User (có full_name) vào máy
       localStorage.setItem("user", JSON.stringify(r.data.user));
       if (rememberMe) {
         localStorage.setItem("savedUsername", u);
@@ -127,7 +126,6 @@ function Main({ token, onLogout }) {
 
   if (!me) return <div style={{ padding: '50px', textAlign: 'center' }}>Đang kết nối hệ thống...</div>;
 
-  // ✅ LOGIC PHÂN QUYỀN MENU (BẤT TỬ)
   const roles = (me.roles || []).map(r => r.toLowerCase());
   const isStudent = roles.includes("student");
   const isTeacher = roles.includes("teacher");
@@ -146,7 +144,6 @@ function Main({ token, onLogout }) {
 
   return (
     <div className="modern-layout">
-      {/* ================= SIDEBAR ================= */}
       <div className="modern-sidebar">
         <div className="sidebar-brand">🎓 THI TRẮC NGHIỆM</div>
         <div className="sidebar-user">
@@ -165,7 +162,6 @@ function Main({ token, onLogout }) {
         </div>
       </div>
 
-      {/* ================= NỘI DUNG CHÍNH (FIXED) ================= */}
       <div className="modern-content">
         {view === "exam_list" && (
           <div className="animate-fade-in" style={{ textAlign: 'center', padding: '40px' }}>
@@ -175,7 +171,6 @@ function Main({ token, onLogout }) {
         )}
         {view === "take_exam" && <StudentDashboard token={token} exams={exams} onTakeExam={setSelected} />}
         {view === "history" && <StudentHistory token={token} exams={exams} />}
-        {/* ✅ ĐÃ THÊM CÁC COMPONENT GIÁO VIÊN VÀO ĐÂY */}
         {view === "create_exam" && <TeacherPanel token={token} me={me} refresh={() => { fetchExams(); setView("manage_exams"); }} />}
         {view === "question_bank" && <QuestionBankManager token={token} />}
         {view === "manage_exams" && <ExamManager token={token} me={me} />}
@@ -183,7 +178,20 @@ function Main({ token, onLogout }) {
         {view === "profile" && <ProfileSettings token={token} user={me} />}
       </div>
 
-      {selected && <ExamTake token={token} examId={selected} me={me} onClose={() => setSelected(null)} />}
+      {/* ✅ FIX CHỖ NÀY: NHẬN LỆNH REDIRECT TỪ EXAMTAKE */}
+      {selected && (
+        <ExamTake 
+          token={token} 
+          examId={selected} 
+          me={me} 
+          onClose={(gotoHistory) => { 
+            setSelected(null); // Đóng modal thi
+            if (gotoHistory === true) {
+              setView("history"); // Chuyển thẳng qua tab Lịch sử để xem điểm
+            }
+          }} 
+        />
+      )}
     </div>
   );
 }
