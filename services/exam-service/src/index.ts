@@ -88,7 +88,7 @@ router.post("/", checkRole(['teacher', 'admin']), async (req, res) => {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// 3. Lấy chi tiết đề (Thí sinh làm bài)
+// 3.1 Lấy chi tiết đề (Thí sinh làm bài)
 router.get("/:id", async (req, res) => {
     const { id } = req.params;
     if (id === 'internal') return; // Tránh nhầm lẫn với route internal
@@ -108,7 +108,7 @@ router.get("/:id", async (req, res) => {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// 3.5 Lấy chi tiết đề kèm đáp án (Dùng cho Review/Sửa đề)
+// 3.2 Lấy chi tiết đề kèm đáp án (Dùng cho Review/Sửa đề)
 router.get("/internal/:id/answers", async (req, res) => {
     const { id } = req.params;
     try {
