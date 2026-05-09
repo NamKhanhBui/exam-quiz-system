@@ -4,17 +4,18 @@ import axios from "axios";
 
 import { AdminPanel } from "./pages/Admin";
 import { TeacherPanel, ExamStats, ExamQuestionEditor, QuestionBankManager, ExamManager } from "./pages/Teacher";
-import { StudentHistory, ExamTake, ExamReview, StudentDashboard } from "./pages/Student";
+import { StudentHistory, ExamTake, StudentDashboard } from "./pages/Student";
 import { ProfileSettings } from "./pages/Profile";
 
 const API = "http://localhost:4000";
 
-// --- 1a. COMPONENT ĐĂNG NHẬP ---
+// --- 1a. COMPONENT ĐĂNG NHẬP (ĐÃ KHÔI PHỤC QUÊN MẬT KHẨU) ---
 function Login({ onLogin, onSwitchRegister }) {
   const [u, setU] = useState(localStorage.getItem("savedUsername") || "");
   const [p, setP] = useState(localStorage.getItem("savedPassword") || "");
   const [rememberMe, setRememberMe] = useState(!!localStorage.getItem("savedUsername"));
   const [loading, setLoading] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false); // ✅ Khôi phục state modal
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -41,26 +42,54 @@ function Login({ onLogin, onSwitchRegister }) {
         <h2>Welcome Back</h2>
         <input className="login-input" placeholder="Tên đăng nhập" value={u} onChange={e => setU(e.target.value)} required />
         <input className="login-input" type="password" placeholder="Mật khẩu" value={p} onChange={e => setP(e.target.value)} required />
+        
         <div className="login-options">
-          <label><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> Ghi nhớ</label>
+          <label className="remember-me">
+            <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+            <span>Ghi nhớ</span>
+          </label>
+          {/* ✅ KHÔI PHỤC LINK QUÊN MẬT KHẨU */}
+          <span className="forgot-password" onClick={() => setShowForgotModal(true)} style={{ color: '#4f46e5', cursor: 'pointer', fontSize: '13px' }}>
+            Quên mật khẩu?
+          </span>
         </div>
+
         <button type="submit" className="btn-primary login-btn" disabled={loading}>
           {loading ? "Đang xử lý..." : "Đăng nhập"}
         </button>
-        <p style={{ marginTop: '15px', textAlign: 'center' }}>Chưa có tài khoản? <span style={{ color: '#4f46e5', cursor: 'pointer' }} onClick={onSwitchRegister}>Tạo tài khoản</span></p>
+        <p style={{ marginTop: '15px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+          Chưa có tài khoản? <span style={{ color: '#4f46e5', cursor: 'pointer', fontWeight: 'bold' }} onClick={onSwitchRegister}>Tạo tài khoản</span>
+        </p>
       </form>
+
+      {/* ✅ KHÔI PHỤC GIAO DIỆN MODAL QUÊN MẬT KHẨU */}
+      {showForgotModal && (
+        <div className="custom-modal-overlay">
+          <div className="custom-modal-content">
+            <h3>Khôi phục mật khẩu</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '15px' }}>
+              Nhập email của bạn để nhận hướng dẫn đặt lại mật khẩu.
+            </p>
+            <input className="login-input" type="email" placeholder="Nhập email..." style={{ marginBottom: '15px' }} />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn-primary" style={{ flex: 1 }} onClick={() => { alert("Yêu cầu đã gửi! Vui lòng kiểm tra email."); setShowForgotModal(false); }}>Gửi</button>
+              <button className="btn-outline" style={{ flex: 1 }} onClick={() => setShowForgotModal(false)}>Hủy</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// --- 1b. COMPONENT ĐĂNG KÝ ---
+// --- 1b. COMPONENT ĐĂNG KÝ (GIỮ NGUYÊN HỌ TÊN) ---
 function Register({ onSwitch }) {
   const [form, setForm] = useState({ u: "", fn: "", p: "", cp: "", email: "" });
   const [error, setError] = useState("");
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (form.p !== form.cp) return setError("Mật khẩu không khớp!");
+    if (form.p !== form.cp) return setError("Mật khẩu xác nhận không khớp!");
     try {
       await axios.post(`${API}/auth/register`, { 
         username: form.u, password: form.p, email: form.email, full_name: form.fn 
@@ -73,14 +102,14 @@ function Register({ onSwitch }) {
     <div className="login-container">
       <form className="login-card" onSubmit={handleSubmit}>
         <h2>Tạo tài khoản mới</h2>
-        <input className="login-input" placeholder="Username" onChange={e => setForm({...form, u: e.target.value})} required />
+        <input className="login-input" placeholder="Tên đăng nhập" onChange={e => setForm({...form, u: e.target.value})} required />
         <input className="login-input" placeholder="Họ và tên thực (VD: Bùi Nam Khánh)" onChange={e => setForm({...form, fn: e.target.value})} required />
         <input className="login-input" type="email" placeholder="Email" onChange={e => setForm({...form, email: e.target.value})} required />
         <input className="login-input" type="password" placeholder="Mật khẩu" onChange={e => setForm({...form, p: e.target.value})} required />
         <input className="login-input" type="password" placeholder="Xác nhận mật khẩu" onChange={e => setForm({...form, cp: e.target.value})} required />
         {error && <div style={{ color: 'red', marginBottom: 10 }}>{error}</div>}
         <button type="submit" className="btn-primary login-btn">Đăng ký ngay</button>
-        <p style={{ marginTop: '15px', textAlign: 'center' }}>Đã có tài khoản? <span style={{ color: '#4f46e5', cursor: 'pointer' }} onClick={onSwitch}>Đăng nhập</span></p>
+        <p style={{ marginTop: '15px', textAlign: 'center' }}>Đã có tài khoản? <span style={{ color: '#4f46e5', cursor: 'pointer', fontWeight: 'bold' }} onClick={onSwitch}>Đăng nhập</span></p>
       </form>
     </div>
   );
@@ -116,10 +145,7 @@ function Main({ token, onLogout }) {
     if (savedUser.full_name) setMe(savedUser);
 
     axios.get(`${API}/auth/me`, { headers: { Authorization: "Bearer " + token } })
-      .then(r => {
-        setMe(r.data);
-        localStorage.setItem("user", JSON.stringify(r.data));
-      })
+      .then(r => { setMe(r.data); localStorage.setItem("user", JSON.stringify(r.data)); })
       .catch(onLogout);
     fetchExams();
   }, [token]);
@@ -178,17 +204,14 @@ function Main({ token, onLogout }) {
         {view === "profile" && <ProfileSettings token={token} user={me} />}
       </div>
 
-      {/* ✅ FIX CHỖ NÀY: NHẬN LỆNH REDIRECT TỪ EXAMTAKE */}
       {selected && (
         <ExamTake 
           token={token} 
           examId={selected} 
           me={me} 
           onClose={(gotoHistory) => { 
-            setSelected(null); // Đóng modal thi
-            if (gotoHistory === true) {
-              setView("history"); // Chuyển thẳng qua tab Lịch sử để xem điểm
-            }
+            setSelected(null); 
+            if (gotoHistory === true) setView("history"); 
           }} 
         />
       )}

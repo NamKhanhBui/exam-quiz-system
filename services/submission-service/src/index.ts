@@ -208,7 +208,7 @@ app.post("/regrade/:examId", async (req, res) => {
     })();
 });
 
-// --- 4. TÍNH NĂNG XEM LẠI BÀI LÀM (REVIEW NHƯ AZOTA) ---
+// --- 4. TÍNH NĂNG XEM LẠI BÀI LÀM  ---
 // Định tuyến này PHẢI nằm trước /:id
 app.get("/review/:id", async (req, res) => {
     try {
