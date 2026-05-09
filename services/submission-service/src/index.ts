@@ -47,24 +47,24 @@ app.post("/", async (req, res) => {
 
         const score = questions.length > 0 ? Math.round((correct_count / questions.length) * 10 * 100) / 100 : 0;
 
-        // KIỂM TRA: ĐÃ CÓ BẢN NHÁP DO AUTOSAVE TẠO CHƯA?
+        // KIỂM TRA: ĐÃ CÓ BẢN NHÁP (draft) DO AUTOSAVE TẠO CHƯA?
         let submissionId;
         const checkDraft = await pool.query(
-            "SELECT id FROM submissions WHERE exam_id = $1 AND user_id = $2 ORDER BY created_at DESC LIMIT 1",
+            "SELECT id FROM submissions WHERE exam_id = $1 AND user_id = $2 AND status = 'draft' ORDER BY created_at DESC LIMIT 1",
             [exam_id, user_id]
         );
 
         if (checkDraft.rows.length > 0) {
-            // Có bản nháp -> Ghi đè đáp án cuối cùng vào dòng cũ (Không tạo thêm dòng mới)
+            // Có bản nháp -> Ghi đè đáp án cuối cùng và ĐỔI TRẠNG THÁI THÀNH 'completed'
             submissionId = checkDraft.rows[0].id;
             await pool.query(
-                "UPDATE submissions SET answers = $1, duration_seconds = $2 WHERE id = $3",
+                "UPDATE submissions SET answers = $1, duration_seconds = $2, status = 'completed' WHERE id = $3",
                 [JSON.stringify(answers), duration_seconds || 0, submissionId]
             );
         } else {
-            // Chưa có bản nháp -> Tạo dòng mới cứng
+            // Chưa có bản nháp -> Tạo dòng mới cứng với status 'completed'
             const result = await pool.query(
-                "INSERT INTO submissions (exam_id, user_id, answers, duration_seconds, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id",
+                "INSERT INTO submissions (exam_id, user_id, answers, duration_seconds, status, created_at) VALUES ($1, $2, $3, $4, 'completed', NOW()) RETURNING id",
                 [exam_id, user_id, JSON.stringify(answers), duration_seconds || 0]
             );
             submissionId = result.rows[0].id;
@@ -88,22 +88,22 @@ app.post("/autosave", async (req, res) => {
     if (!exam_id || !user_id) return res.status(400).json({ error: "Thiếu exam_id hoặc user_id" });
 
     try {
-        // Tìm xem học sinh này đã lưu nháp lần nào chưa
+        // Tìm xem học sinh này có ĐANG làm dở bản nháp nào không (status = 'draft')
         const checkDraft = await pool.query(
-            "SELECT id FROM submissions WHERE exam_id = $1 AND user_id = $2 ORDER BY created_at DESC LIMIT 1",
+            "SELECT id FROM submissions WHERE exam_id = $1 AND user_id = $2 AND status = 'draft' ORDER BY created_at DESC LIMIT 1",
             [exam_id, user_id]
         );
 
         if (checkDraft.rows.length > 0) {
-            // Lần thứ 2 trở đi -> Chỉ Cập nhật (UPDATE)
+            // Đã có nháp -> Chỉ Cập nhật (UPDATE)
             await pool.query(
                 "UPDATE submissions SET answers = $1, duration_seconds = $2 WHERE id = $3",
                 [JSON.stringify(answers || {}), duration_seconds || 0, checkDraft.rows[0].id]
             );
         } else {
-            // Lần đầu tiên lưu nháp -> Thêm mới (INSERT)
+            // Chưa có nháp -> Thêm mới (INSERT) với status là 'draft'
             await pool.query(
-                "INSERT INTO submissions (exam_id, user_id, answers, duration_seconds, created_at) VALUES ($1, $2, $3, $4, NOW())",
+                "INSERT INTO submissions (exam_id, user_id, answers, duration_seconds, status, created_at) VALUES ($1, $2, $3, $4, 'draft', NOW())",
                 [exam_id, user_id, JSON.stringify(answers || {}), duration_seconds || 0]
             );
         }
@@ -114,22 +114,20 @@ app.post("/autosave", async (req, res) => {
     }
 });
 
-// --- 1.8 ENDPOINT LẤY BẢN NHÁP (PHIÊN BẢN FIX LỖI ÉP KIỂU) ---
+// --- 1.3 ENDPOINT LẤY BẢN NHÁP (PHIÊN BẢN CHỈ LẤY 'draft') ---
 app.get("/draft/:exam_id/:user_id", async (req, res) => {
     const { exam_id, user_id } = req.params;
 
     try {
-        // Vì trong DB ông để là TEXT nên ở đây mình để nguyên, không thêm ::uuid
+        // CHỈ LẤY những bài có trạng thái là 'draft'
         const draft = await pool.query(
-            "SELECT answers, duration_seconds FROM submissions WHERE exam_id = $1 AND user_id = $2 ORDER BY created_at DESC LIMIT 1",
+            "SELECT answers, duration_seconds FROM submissions WHERE exam_id = $1 AND user_id = $2 AND status = 'draft' ORDER BY created_at DESC LIMIT 1",
             [exam_id, user_id]
         );
         
         if (draft.rows.length > 0) {
-            // Có dữ liệu thì trả về object đầu tiên
             return res.status(200).json(draft.rows[0]);
         } else {
-            // Không có thì trả về null nhưng vẫn báo 200 OK
             return res.status(200).json(null);
         }
     } catch (err: any) {
@@ -145,7 +143,13 @@ app.get("/my", async (req, res) => {
     try {
         const token = auth.split(" ")[1];
         const decoded: any = jwt.verify(token, JWT_SECRET);
-        const r = await pool.query("SELECT * FROM submissions WHERE user_id = $1 ORDER BY created_at DESC", [decoded.id]);
+        
+        // CHỈ hiển thị những bài ĐÃ NỘP (status = 'completed') ra lịch sử
+        const r = await pool.query(
+            "SELECT * FROM submissions WHERE user_id = $1 AND status = 'completed' ORDER BY created_at DESC", 
+            [decoded.id]
+        );
+        
         const subs = await Promise.all(r.rows.map(async (sub) => {
             try {
                 const resSc = await http.get(`${RESULT_SERVICE_URL}/submission/${sub.id}`);
@@ -169,7 +173,7 @@ app.post("/regrade/:examId", async (req, res) => {
         try {
             const examRes = await http.get(`${EXAM_SERVICE_URL}/internal/${examId}/answers`);
             const questions = examRes.data.questions;
-            const subRes = await pool.query("SELECT * FROM submissions WHERE exam_id = $1", [examId]);
+            const subRes = await pool.query("SELECT * FROM submissions WHERE exam_id = $1 AND status = 'completed'", [examId]);
             const allSubmissions = subRes.rows;
 
             const tasks = allSubmissions.map(async (sub) => {

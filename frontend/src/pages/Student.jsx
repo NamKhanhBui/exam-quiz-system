@@ -2,7 +2,95 @@ import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { API } from "../config";
 
-// --- 1. COMPONENT LỊCH SỬ THI ---
+// --- 1. COMPONENT DASHBOARD & TÌM KIẾM (MỚI THÊM) ---
+export function StudentDashboard({ token, exams, onTakeExam }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [attemptedCount, setAttemptedCount] = useState(0);
+
+  // Tính số đề đã làm từ lịch sử thi
+  useEffect(() => {
+    axios.get(`${API}/submissions/my`, { headers: { Authorization: "Bearer " + token } })
+      .then(r => {
+        // Dùng Set để đếm số lượng đề thi duy nhất đã từng làm
+        const uniqueExams = new Set(r.data.map(sub => sub.exam_id));
+        setAttemptedCount(uniqueExams.size);
+      })
+      .catch(err => console.error("Lỗi lấy thống kê:", err));
+  }, [token]);
+
+  // Lọc đề thi theo từ khóa (Tìm theo tên hoặc môn học)
+  const filteredExams = exams.filter(e => {
+    const keyword = searchQuery.toLowerCase();
+    const matchTitle = e.title && e.title.toLowerCase().includes(keyword);
+    const matchSubject = e.subject && e.subject.toLowerCase().includes(keyword); 
+    return matchTitle || matchSubject;
+  });
+
+  return (
+    <div className="dashboard-container">
+      {/* KHỐI THỐNG KÊ */}
+      <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '250px', padding: '20px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h4 style={{ margin: '0 0 5px 0', color: '#1e3a8a' }}>Tổng số đề thi</h4>
+            <p style={{ margin: 0, fontSize: '14px', color: '#3b82f6' }}>Hiện có trên hệ thống</p>
+          </div>
+          <span style={{ fontSize: '32px', fontWeight: 'bold', color: '#1d4ed8' }}>{exams.length}</span>
+        </div>
+
+        <div style={{ flex: 1, minWidth: '250px', padding: '20px', background: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h4 style={{ margin: '0 0 5px 0', color: '#14532d' }}>Số đề đã thử sức</h4>
+            <p style={{ margin: 0, fontSize: '14px', color: '#22c55e' }}>Đã hoàn thành ít nhất 1 lần</p>
+          </div>
+          <span style={{ fontSize: '32px', fontWeight: 'bold', color: '#15803d' }}>{attemptedCount}</span>
+        </div>
+      </div>
+
+      {/* KHỐI TÌM KIẾM */}
+      <div style={{ marginBottom: '20px' }}>
+        <input 
+          type="text" 
+          placeholder="🔍 Nhập tên đề thi hoặc môn học để tìm kiếm..." 
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{ width: '100%', padding: '12px 20px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '16px', outline: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+        />
+      </div>
+
+      {/* DANH SÁCH ĐỀ THI */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+        {filteredExams.length > 0 ? (
+          filteredExams.map(exam => (
+            <div key={exam.id} style={{ padding: '20px', background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', border: '1px solid #f3f4f6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <span style={{ display: 'inline-block', padding: '4px 8px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', marginBottom: '10px' }}>
+                  {exam.subject || "Thi trắc nghiệm"}
+                </span>
+                <h3 style={{ margin: '0 0 10px 0', fontSize: '18px', color: '#111827' }}>{exam.title}</h3>
+                <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#6b7280' }}>⏱ Thời gian: {exam.duration} phút</p>
+              </div>
+              <button 
+                onClick={() => onTakeExam(exam.id)}
+                style={{ width: '100%', padding: '10px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', transition: 'background 0.2s' }}
+                onMouseOver={(e) => e.target.style.background = '#2563eb'}
+                onMouseOut={(e) => e.target.style.background = '#3b82f6'}
+              >
+                📝 Bắt đầu làm bài
+              </button>
+            </div>
+          ))
+        ) : (
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#6b7280', background: '#f9fafb', borderRadius: '8px' }}>
+            Không tìm thấy đề thi nào phù hợp với từ khóa "{searchQuery}"
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- 2. COMPONENT LỊCH SỬ THI ---
 export function StudentHistory({ token, exams }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +138,7 @@ export function StudentHistory({ token, exams }) {
   );
 }
 
-// --- 2. COMPONENT XEM LẠI BÀI ĐÃ LÀM ---
+// --- 3. COMPONENT XEM LẠI BÀI ĐÃ LÀM ---
 export function ExamReview({ token, submissionId, onClose }) {
   const [data, setData] = useState(null);
 
@@ -108,7 +196,7 @@ export function ExamReview({ token, submissionId, onClose }) {
   );
 }
 
-// --- 3. COMPONENT PHÒNG THI (CHÍNH) ---
+// --- 4. COMPONENT PHÒNG THI (CHÍNH) ---
 export function ExamTake({ token, examId, me, onClose }) {
   const [data, setData] = useState(null);
   const [answers, setAnswers] = useState({});
@@ -151,9 +239,14 @@ export function ExamTake({ token, examId, me, onClose }) {
             setTimeLeft(timeRemaining > 0 ? timeRemaining : 0);
             console.log("📥 Đã khôi phục bài làm từ bản nháp.");
           } else {
+            // Đảm bảo reset trạng thái về trắng tinh nếu bắt đầu lượt mới
+            setAnswers({});
             setTimeLeft(totalDuration); 
+            console.log("🆕 Không có nháp, bắt đầu lượt làm mới.");
           }
         } catch {
+          // Nếu API lỗi, cũng cho học sinh làm mới từ đầu cho an toàn
+          setAnswers({});
           setTimeLeft(totalDuration);
         }
       });

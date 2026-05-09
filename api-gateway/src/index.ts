@@ -14,20 +14,19 @@ const RESULT_URL = process.env.RESULT_URL || 'http://result-service:3005';
 
 const SECRET_KEY = process.env.JWT_SECRET || 'khanh_secret_key_2026';
 
+// 👇 FIX LỖI CORS: Đảm bảo mọi request OPTIONS đều được thông chốt mượt mà
 app.use(cors());
+app.options('*', cors()); 
 
 // --- 🛡️ CƠ CHẾ TRUYỀN TIN (HEADER PROPAGATION) ---
-// Ép kiểu (req: any) để TypeScript không bắt bẻ thuộc tính .user
 proxy.on('proxyReq', (proxyReq, req: any, res, options) => {
     if (req.user) {
         proxyReq.setHeader('x-user-id', req.user.id || '');
         proxyReq.setHeader('x-user-roles', (req.user.roles || []).join(','));
     }
-    // Inject service token for internal service communication
     proxyReq.setHeader('x-service-token', process.env.SERVICE_TOKEN || 'service_token');
 });
 
-// Ép kiểu (res: any) để sử dụng các hàm của Express như .status() và .json()
 proxy.on('error', (err, req, res: any) => {
     console.error('[GATEWAY ERROR]:', err.message);
     if (!res.headersSent) {
@@ -37,6 +36,9 @@ proxy.on('error', (err, req, res: any) => {
 
 // --- 🔐 MIDDLEWARES XÁC THỰC ---
 const verifyJwt = (req: any, res: any, next: any) => {
+    // 👇 FIX BỔ SUNG: Bỏ qua hoàn toàn việc check JWT nếu là request OPTIONS
+    if (req.method === 'OPTIONS') return next();
+
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     
@@ -51,6 +53,8 @@ const verifyJwt = (req: any, res: any, next: any) => {
 
 const requireRole = (...allowedRoles: string[]) => {
     return (req: any, res: any, next: any) => {
+        if (req.method === 'OPTIONS') return next();
+        
         const roles = req.user?.roles || [];
         const hasRole = allowedRoles.some((r: string) => roles.includes(r));
         if (!hasRole) return res.status(403).json({ error: "Bạn không có quyền thực hiện" });
@@ -68,19 +72,16 @@ const proxyTo = (target: string) => (req: any, res: any) => {
 app.use("/auth", proxyTo(AUTH_URL));
 
 app.use("/exams", (req: any, res: any, next) => {
-    // 1. Chặn riêng các route của Ngân hàng câu hỏi (Dù là GET hay POST đều bắt buộc kiểm tra Token và Quyền giáo viên)
     if (req.originalUrl.includes("/banks/")) {
         return verifyJwt(req, res, () => {
             requireRole("teacher", "admin")(req, res, () => proxyTo(EXAM_URL)(req, res));
         });
     }
 
-    // 2. Các route GET khác (Ví dụ: Học sinh lấy đề thi về làm) thì cho qua (không cần quyền giáo viên)
     if (req.method === "GET" && !req.originalUrl.includes("/internal/")) {
         return proxyTo(EXAM_URL)(req, res);
     }
     
-    // 3. Các thao tác sửa/xóa/tạo đề thi khác (POST, PUT, DELETE) bắt buộc giáo viên/admin
     verifyJwt(req, res, () => {
         requireRole("teacher", "admin")(req, res, () => proxyTo(EXAM_URL)(req, res));
     });

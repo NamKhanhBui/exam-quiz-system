@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
@@ -9,18 +9,26 @@ app.use(cors());
 app.use(express.json());
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const JWT_SECRET = process.env.JWT_SECRET || "khanh_secret_key_2026";
+const JWT_SECRET = process.env.JWT_SECRET || "BuiNamKhanh_SecretKey_BaoVeDoAn2026";
 
-// Logger để Khánh soi lỗi
-app.use((req, res, next) => {
+// ✅ ĐỊNH NGHĨA KHUÔN (INTERFACE) CHO TOKEN
+// Việc này giúp TypeScript hiểu payload có chứa id, username và roles
+interface MyJwtPayload extends jwt.JwtPayload {
+    id: string;
+    username: string;
+    roles: string[];
+}
+
+// Logger kiểm soát luồng
+app.use((req: Request, res: Response, next) => {
     console.log(`>>> [AUTH-INTERNAL] ${req.method} ${req.url}`);
     next();
 });
 
-// --- ROUTE ĐĂNG KÝ ---
-app.post("/register", async (req, res) => {
-    const { username, email, password, role } = req.body;
-    if (!username || !password) return res.status(400).json({ error: "Thiếu thông tin" });
+// --- 1. ROUTE ĐĂNG KÝ ---
+app.post("/register", async (req: Request, res: Response) => {
+    const { username, email, password, role, full_name } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "Thiếu thông tin đăng ký" });
 
     const client = await pool.connect();
     try {
@@ -28,8 +36,8 @@ app.post("/register", async (req, res) => {
         await client.query('BEGIN');
         
         const userRes = await client.query(
-            "INSERT INTO users(username, email, password_hash) VALUES($1, $2, $3) RETURNING id",
-            [username, email || null, hash]
+            "INSERT INTO users(username, email, password_hash, full_name) VALUES($1, $2, $3, $4) RETURNING id",
+            [username, email || null, hash, full_name || username]
         );
         const userId = userRes.rows[0].id;
 
@@ -53,8 +61,8 @@ app.post("/register", async (req, res) => {
     }
 });
 
-// --- ROUTE ĐĂNG NHẬP ---
-app.post("/login", async (req, res) => {
+// --- 2. ROUTE ĐĂNG NHẬP ---
+app.post("/login", async (req: Request, res: Response) => {
     try {
         const { username, password } = req.body;
         const r = await pool.query("SELECT * FROM users WHERE username=$1", [username]);
@@ -70,117 +78,86 @@ app.post("/login", async (req, res) => {
         );
         const roles = rolesQ.rows.map((x: any) => x.name);
 
-        const token = jwt.sign({ id: user.id, username: user.username, roles }, JWT_SECRET, { expiresIn: "6h" });
-        res.json({ access_token: token, user: { id: user.id, username: user.username, roles } });
+        const token = jwt.sign(
+            { id: user.id, username: user.username, roles }, 
+            JWT_SECRET, 
+            { expiresIn: "6h" }
+        );
+
+        res.json({ 
+            access_token: token, 
+            user: { 
+                id: user.id, 
+                username: user.username, 
+                full_name: user.full_name || user.username,
+                roles 
+            } 
+        });
     } catch (err) {
         res.status(500).json({ error: "Lỗi Server" });
     }
 });
 
-// --- THÔNG TIN CÁ NHÂN ---
-app.get("/me", async (req, res) => {
+// --- 3. THÔNG TIN CÁ NHÂN (HẾT LỖI TS2339 & TS2698) ---
+app.get("/me", async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(" ")[1];
     if (!token) return res.status(401).json({ error: "No token" });
     try {
-        // ĐÃ SỬA: Thêm kiểu : any để TypeScript không báo lỗi thuộc tính
-        const payload: any = jwt.verify(token, JWT_SECRET);
+        // ✅ ÉP KIỂU SANG MyJwtPayload ĐỂ TRUY CẬP .id VÀ SPREAD OBJECT
+        const payload = jwt.verify(token, JWT_SECRET) as MyJwtPayload;
         
-        const r = await pool.query("SELECT email FROM users WHERE id=$1", [payload.id]);
-        const email = r.rows[0]?.email || "";
+        const r = await pool.query("SELECT email, full_name FROM users WHERE id=$1", [payload.id]);
+        const dbUser = r.rows[0];
 
-        res.json({ ...payload, email });
+        res.json({ 
+            ...payload, 
+            email: dbUser?.email || "", 
+            full_name: dbUser?.full_name || payload.username 
+        });
     } catch {
         res.status(401).json({ error: "Invalid token" });
     }
 });
 
-// --- ĐỔI MẬT KHẨU ---
-app.put("/change-password", async (req, res) => {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) return res.status(401).json({ error: "No token" });
-
-    try {
-        // ĐÃ SỬA: Thêm kiểu : any
-        const payload: any = jwt.verify(token, JWT_SECRET);
-        const userId = payload.id;
-        const { oldPassword, newPassword } = req.body;
-
-        if (!oldPassword || !newPassword) {
-            return res.status(400).json({ message: "Vui lòng nhập đủ thông tin" });
-        }
-
-        const r = await pool.query("SELECT password_hash FROM users WHERE id=$1", [userId]);
-        const user = r.rows[0];
-        if (!user) return res.status(404).json({ message: "User không tồn tại" });
-
-        const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
-        if (!isMatch) {
-            return res.status(400).json({ message: "Mật khẩu cũ không chính xác" });
-        }
-
-        const newHash = await bcrypt.hash(newPassword, 10);
-        await pool.query("UPDATE users SET password_hash=$1 WHERE id=$2", [newHash, userId]);
-
-        res.json({ message: "Cập nhật mật khẩu thành công" });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Lỗi Server hoặc Token không hợp lệ" });
-    }
-});
-
-// ==========================================
-// NHÓM API QUẢN LÝ USER (DÀNH CHO ADMIN)
-// ==========================================
-
-// 1. Lấy danh sách toàn bộ User kèm Quyền
-app.get("/users", async (req, res) => {
+// --- 4. DANH SÁCH USER ---
+app.get("/users", async (req: Request, res: Response) => {
     try {
         const r = await pool.query(`
-            SELECT u.id, u.username, u.email, r.name as role
+            SELECT u.id, u.username, u.email, u.full_name, r.name as role
             FROM users u
             LEFT JOIN user_roles ur ON u.id = ur.user_id
             LEFT JOIN roles r ON ur.role_id = r.id
             ORDER BY u.id DESC
         `);
         res.json(r.rows);
-    } catch (err) { res.status(500).json({ error: "Lỗi lấy danh sách user" }); }
+    } catch (err) { 
+        res.status(500).json({ error: "Lỗi lấy danh sách user" }); 
+    }
 });
 
-// 2. Cập nhật phân quyền cho User
-app.put("/users/:id/role", async (req, res) => {
-    const { id } = req.params;
-    const { role } = req.body;
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        const roleRes = await client.query("SELECT id FROM roles WHERE name=$1", [role]);
-        if (roleRes.rows.length === 0) throw new Error("Quyền không hợp lệ");
-        
-        await client.query("DELETE FROM user_roles WHERE user_id=$1", [id]);
-        await client.query("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", [id, roleRes.rows[0].id]);
-        
-        await client.query('COMMIT');
-        res.json({ success: true, message: "Cập nhật quyền thành công!" });
-    } catch (err: any) {
-        await client.query('ROLLBACK');
-        res.status(500).json({ error: err.message });
-    } finally { client.release(); }
-});
+// --- 5. ĐỔI MẬT KHẨU ---
+app.put("/change-password", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
 
-// 3. Xóa vĩnh viễn tài khoản (Kick User)
-app.delete("/users/:id", async (req, res) => {
-    const { id } = req.params;
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
-        await client.query("DELETE FROM user_roles WHERE user_id=$1", [id]);
-        await client.query("DELETE FROM users WHERE id=$1", [id]);
-        await client.query('COMMIT');
-        res.json({ success: true, message: "Đã xóa tài khoản" });
+        const payload = jwt.verify(token, JWT_SECRET) as MyJwtPayload;
+        const { oldPassword, newPassword } = req.body;
+
+        const r = await pool.query("SELECT password_hash FROM users WHERE id=$1", [payload.id]);
+        const user = r.rows[0];
+        if (!user) return res.status(404).json({ message: "User không tồn tại" });
+
+        const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
+        if (!isMatch) return res.status(400).json({ message: "Mật khẩu cũ không đúng" });
+
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await pool.query("UPDATE users SET password_hash=$1 WHERE id=$2", [newHash, payload.id]);
+
+        res.json({ message: "Cập nhật mật khẩu thành công" });
     } catch (err) {
-        await client.query('ROLLBACK');
-        res.status(500).json({ error: "Lỗi khi xóa tài khoản" });
-    } finally { client.release(); }
+        res.status(500).json({ message: "Lỗi Server hoặc Token không hợp lệ" });
+    }
 });
 
 const port = process.env.PORT || 3001;
