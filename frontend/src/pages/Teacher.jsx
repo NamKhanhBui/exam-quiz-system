@@ -397,6 +397,8 @@ export function ExamManager({ token, me, onEditQuestions, onViewStats }) {
                     </td>
                     <td style={{ padding: '12px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                        
+                        {/* NÚT THỐNG KÊ */}
                         <button
                           title="Xem thống kê điểm"
                           style={{ background: '#10b981', color: 'white', border: 'none', padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
@@ -407,16 +409,22 @@ export function ExamManager({ token, me, onEditQuestions, onViewStats }) {
                         >
                           📊 Thống kê
                         </button>
-                        <button
-                          title="Sửa nội dung câu hỏi"
-                          style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          onClick={() => {
-                            setSelectedExamId(ex.id);
-                            setActiveView('edit');
-                          }}
-                        >
-                          ✏️ Sửa câu
-                        </button>
+                        
+                        {/* NÚT SỬA CÂU: BỊ KHÓA NẾU LÀ ADMIN */}
+                        {(!me?.roles?.includes("admin") && me?.role !== "admin") && (
+                          <button
+                            title="Sửa nội dung câu hỏi"
+                            style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => {
+                              setSelectedExamId(ex.id);
+                              setActiveView('edit');
+                            }}
+                          >
+                            ✏️ Sửa câu
+                          </button>
+                        )}
+                        
+                        {/* NÚT XÓA */}
                         <button
                           title="Xóa đề"
                           style={{ background: '#ef4444', color: 'white', border: 'none', padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center' }}
@@ -424,6 +432,7 @@ export function ExamManager({ token, me, onEditQuestions, onViewStats }) {
                         >
                           🗑️ Xóa
                         </button>
+                        
                       </div>
                     </td>
                   </tr>

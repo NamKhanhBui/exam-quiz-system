@@ -278,7 +278,7 @@ function Main({ token, onLogout }) {
             { id: "exam_list", label: "Trang chủ", icon: "🏠", show: true },
             { id: "history", label: "Lịch sử làm bài", icon: "🕒", show: !me.roles?.includes("admin") && !me.roles?.includes("teacher") },
             { id: "create_exam", label: "Soạn đề thi mới", icon: "➕", show: me.roles?.includes("teacher") },
-            { id: "question_bank", label: "Ngân hàng câu hỏi", icon: "🗄️", show: me.roles?.includes("teacher") || me.roles?.includes("admin") },
+            { id: "question_bank", label: "Ngân hàng câu hỏi", icon: "🗄️", show: me.roles?.includes("teacher") },
             { id: "manage_exams", label: "Quản lý đề thi", icon: "📁", show: me.roles?.includes("teacher") || me.roles?.includes("admin") },
             { id: "admin_panel", label: "Quản trị hệ thống", icon: "⚙️", show: me.roles?.includes("admin") },
             { id: "profile", label: "Cài đặt tài khoản", icon: "👤", show: true }
