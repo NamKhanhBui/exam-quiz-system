@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { API } from "../config";
 
+// --- 1. COMPONENT LỊCH SỬ THI ---
 export function StudentHistory({ token, exams }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +50,7 @@ export function StudentHistory({ token, exams }) {
   );
 }
 
+// --- 2. COMPONENT XEM LẠI BÀI ĐÃ LÀM ---
 export function ExamReview({ token, submissionId, onClose }) {
   const [data, setData] = useState(null);
 
@@ -106,6 +108,7 @@ export function ExamReview({ token, submissionId, onClose }) {
   );
 }
 
+// --- 3. COMPONENT PHÒNG THI (CHÍNH) ---
 export function ExamTake({ token, examId, me, onClose }) {
   const [data, setData] = useState(null);
   const [answers, setAnswers] = useState({});
@@ -115,19 +118,48 @@ export function ExamTake({ token, examId, me, onClose }) {
   const [currentPage, setCurrentPage] = useState(0);
   const QUESTIONS_PER_PAGE = 10;
 
+  // Sử dụng useRef để lưu giá trị mới nhất mà không gây re-render liên tục cho useEffect lưu nháp
+  const latestAnswers = useRef(answers);
+  const latestTimeLeft = useRef(timeLeft);
+
+  useEffect(() => {
+    latestAnswers.current = answers;
+    latestTimeLeft.current = timeLeft;
+  }, [answers, timeLeft]);
+
+  // A. TẢI ĐỀ THI VÀ TỰ ĐỘNG PHỤC HỒI BẢN NHÁP CŨ (NẾU CÓ)
   useEffect(() => {
     axios.get(`${API}/exams/${examId}`, { headers: { Authorization: "Bearer " + token } })
-      .then(r => { 
+      .then(async r => { 
         const shuffle = (array) => [...array].sort(() => Math.random() - 0.5);
         let randomizedQuestions = shuffle(r.data.questions);
         randomizedQuestions = randomizedQuestions.map(q => ({
           ...q, options: shuffle(q.options)
         }));
         setData({ ...r.data, questions: randomizedQuestions }); 
-        setTimeLeft(r.data.exam.duration * 60); 
-      });
-  }, [examId, token]);
+        
+        const totalDuration = r.data.exam.duration * 60; // Tính theo giây
 
+        // Kiểm tra xem có bản nháp nào từ Backend gửi lên không
+        try {
+          const draftRes = await axios.get(`${API}/submissions/draft/${examId}/${me.id}`, { headers: { Authorization: "Bearer " + token } });
+          if (draftRes.data) {
+            const savedAnswers = typeof draftRes.data.answers === 'string' ? JSON.parse(draftRes.data.answers) : draftRes.data.answers;
+            setAnswers(savedAnswers || {});
+            // Khôi phục thời gian còn lại
+            const timeRemaining = totalDuration - (draftRes.data.duration_seconds || 0);
+            setTimeLeft(timeRemaining > 0 ? timeRemaining : 0);
+            console.log("📥 Đã khôi phục bài làm từ bản nháp.");
+          } else {
+            setTimeLeft(totalDuration); 
+          }
+        } catch {
+          setTimeLeft(totalDuration);
+        }
+      });
+  }, [examId, token, me.id]);
+
+  // B. ĐỒNG HỒ ĐẾM NGƯỢC
   useEffect(() => {
     if (timeLeft === null || isSubmitting) return;
     if (timeLeft <= 0) { submit(true); return; }
@@ -135,46 +167,31 @@ export function ExamTake({ token, examId, me, onClose }) {
     return () => clearInterval(timer);
   }, [timeLeft, isSubmitting]);
 
-  // 👇 CHÈN ĐOẠN NÀY VÀO THAY THẾ ĐOẠN AUTO-SAVE CŨ 👇
-  
-  // 1. Tạo "kho bí mật" để chứa dữ liệu mới nhất mà không làm reset đồng hồ
-  const latestAnswers = React.useRef(answers);
-  const latestTimeLeft = React.useRef(timeLeft);
-
-  // 2. Cập nhật kho liên tục mỗi khi ông tick đáp án hoặc đồng hồ nhảy số
-  useEffect(() => {
-    latestAnswers.current = answers;
-    latestTimeLeft.current = timeLeft;
-  }, [answers, timeLeft]);
-
-  // 3. TÍNH NĂNG AUTO-SAVE (Chạy vòng lặp chuẩn 30 giây độc lập)
+  // C. TỰ ĐỘNG LƯU NHÁP SAU MỖI 30 GIÂY
   useEffect(() => {
     if (isSubmitting || !data) return;
     
     const autosaveTimer = setInterval(() => {
-      const currentAnswers = latestAnswers.current;
-      const currentTime = latestTimeLeft.current;
+      const currentAns = latestAnswers.current;
+      const currentRemaining = latestTimeLeft.current;
 
-      // Nếu chưa tick câu nào thì không lưu
-      if (Object.keys(currentAnswers).length === 0) return;
+      if (Object.keys(currentAns).length === 0) return;
 
-      console.log("⏳ Đang lưu nháp tự động...");
+      console.log("⏳ Đang tự động lưu nháp...");
       axios.post(`${API}/submissions/autosave`, {
         exam_id: examId,
         user_id: me.id,
-        answers: currentAnswers,
-        duration_seconds: (data.exam.duration * 60) - (currentTime < 0 ? 0 : currentTime)
+        answers: currentAns,
+        duration_seconds: (data.exam.duration * 60) - (currentRemaining < 0 ? 0 : currentRemaining)
       }, { headers: { Authorization: "Bearer " + token } })
       .then(() => console.log("✅ Lưu nháp thành công!"))
       .catch((err) => console.error("❌ Lỗi lưu nháp:", err));
-      
-    }, 30000); // Đếm chuẩn 30 giây không bị ngắt quãng
+    }, 30000);
 
     return () => clearInterval(autosaveTimer);
-  }, [isSubmitting, examId, me.id, data, token]); 
-  // 👆 KẾT THÚC ĐOẠN CHÈN 👆
-  // ----------------------------------------------------
+  }, [isSubmitting, examId, me.id, data, token]);
 
+  // D. HÀM NỘP BÀI
   const submit = async (isAuto = false) => {
     const unansweredCount = data.questions.length - Object.keys(answers).length;
     if (!isAuto && unansweredCount > 0) {
@@ -206,7 +223,7 @@ export function ExamTake({ token, examId, me, onClose }) {
   };
 
   const handleExit = () => {
-    if (window.confirm("Bạn có chắc muốn thoát? Kết quả làm bài hiện tại sẽ không được lưu!")) {
+    if (window.confirm("Bạn có chắc muốn thoát? Mọi tiến trình chưa nộp bài sẽ dựa trên bản nháp cuối cùng!")) {
       onClose(false);
     }
   };
@@ -242,34 +259,14 @@ export function ExamTake({ token, examId, me, onClose }) {
                 <div key={q.id} id={`question-${i}`} className="question-card" style={{ borderLeft: flagged[q.id] ? '5px solid #ef4444' : '5px solid transparent', background: flagged[q.id] ? '#fef2f2' : '#fff' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <p style={{ margin: '0 0 15px 0' }}><strong>Câu {i+1}:</strong> {q.text}</p>
-                    <button 
-                      onClick={() => toggleFlag(q.id)}
-                      style={{
-                        background: flagged[q.id] ? '#fef08a' : '#f1f5f9',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        color: '#475569',
-                        whiteSpace: 'nowrap'
-                      }}
-                      title="Đánh dấu câu này để xem lại sau"
-                    >
+                    <button onClick={() => toggleFlag(q.id)} style={{ background: flagged[q.id] ? '#fef08a' : '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 8px', fontSize: '12px' }}>
                       {flagged[q.id] ? '🚩 Đã gắn cờ' : '🏳️ Gắn cờ'}
                     </button>
                   </div>
                   <div className="options-list">
                     {q.options.map(opt => (
                       <label key={opt.id} className="option-item">
-                        <input 
-                          type="radio" 
-                          name={q.id} 
-                          onChange={() => setAnswers({...answers, [q.id]: opt.code})} 
-                          disabled={isSubmitting} 
-                          checked={answers[q.id] === opt.code}
-                        />
+                        <input type="radio" name={q.id} onChange={() => setAnswers({...answers, [q.id]: opt.code})} checked={answers[q.id] === opt.code} />
                         <span>{opt.text}</span>
                       </label>
                     ))}
@@ -277,55 +274,23 @@ export function ExamTake({ token, examId, me, onClose }) {
                 </div>
               );
             })}
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <button 
-                className="btn-outline" 
-                disabled={currentPage === 0} 
-                onClick={() => { setCurrentPage(p => p - 1); window.scrollTo(0,0); }}
-                style={{ padding: '8px 16px', background: currentPage === 0 ? '#e2e8f0' : '#fff' }}
-              >
-                ⬅ Trang trước
-              </button>
-              <span style={{ fontWeight: 'bold', color: '#475569' }}>Trang {currentPage + 1} / {totalPages}</span>
-              <button 
-                className="btn-outline" 
-                disabled={currentPage === totalPages - 1} 
-                onClick={() => { setCurrentPage(p => p + 1); window.scrollTo(0,0); }}
-                style={{ padding: '8px 16px', background: currentPage === totalPages - 1 ? '#e2e8f0' : '#fff' }}
-              >
-                Trang sau ➡
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
+              <button className="btn-outline" disabled={currentPage === 0} onClick={() => { setCurrentPage(p => p - 1); window.scrollTo(0,0); }}>⬅ Trang trước</button>
+              <span>Trang {currentPage + 1} / {totalPages}</span>
+              <button className="btn-outline" disabled={currentPage === totalPages - 1} onClick={() => { setCurrentPage(p => p + 1); window.scrollTo(0,0); }}>Trang sau ➡</button>
             </div>
           </div>
           <div className="exam-palette-panel">
-            <h4 style={{margin: '0 0 15px 0', color: '#1e293b'}}>Tiến độ làm bài</h4>
+            <h4>Tiến độ</h4>
             <div className="palette-grid">
-              {data.questions.map((q, i) => {
-                const isAnswered = !!answers[q.id]; 
-                return (
-                  <button
-                    key={q.id}
-                    className={`palette-box ${isAnswered ? 'answered' : ''}`}
-                    onClick={() => scrollToQuestion(i)}
-                    style={{
-                      position: 'relative',
-                      border: flagged[q.id] ? '2px solid #ef4444' : '',
-                      background: flagged[q.id] && !isAnswered ? '#fee2e2' : ''
-                    }}
-                  >
-                    {i + 1}
-                    {flagged[q.id] && <span style={{ position: 'absolute', top: '-6px', right: '-6px', fontSize: '12px' }}>🚩</span>}
-                  </button>
-                );
-              })}
+              {data.questions.map((q, i) => (
+                <button key={q.id} className={`palette-box ${answers[q.id] ? 'answered' : ''}`} onClick={() => scrollToQuestion(i)} style={{ border: flagged[q.id] ? '2px solid #ef4444' : '' }}>
+                  {i + 1}
+                </button>
+              ))}
             </div>
-            <div style={{marginTop: '25px', borderTop: '1px solid #e5e7eb', paddingTop: '15px'}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '14px', color: '#64748b'}}>
-                <span>Đã làm: <strong style={{color: '#10b981'}}>{Object.keys(answers).length}</strong></span>
-                <span>Chưa làm: <strong>{data.questions.length - Object.keys(answers).length}</strong></span>
-              </div>
-              <button className="btn-primary" onClick={() => submit(false)} disabled={isSubmitting} style={{width:'100%', padding: '14px'}}>
+            <div style={{marginTop: '25px'}}>
+              <button className="btn-primary" onClick={() => submit(false)} disabled={isSubmitting} style={{width:'100%'}}>
                 {isSubmitting ? "Đang xử lý..." : "Nộp bài ngay"}
               </button>
             </div>

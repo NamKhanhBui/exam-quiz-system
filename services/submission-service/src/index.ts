@@ -25,7 +25,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// --- 1. ENDPOINT NỘP BÀI (POST /) ---
+// --- 1.1 ENDPOINT NỘP BÀI (POST /) ---
 app.post("/", async (req, res) => {
     const { exam_id, user_id, answers, duration_seconds } = req.body;
     if (!exam_id || !user_id || !answers) return res.status(400).json({ error: "Dữ liệu thiếu" });
@@ -82,7 +82,7 @@ app.post("/", async (req, res) => {
     }
 });
 
-// --- 1.5 ENDPOINT LƯU NHÁP (POST /autosave) ---
+// --- 1.2 ENDPOINT LƯU NHÁP (POST /autosave) ---
 app.post("/autosave", async (req, res) => {
     const { exam_id, user_id, answers, duration_seconds } = req.body;
     if (!exam_id || !user_id) return res.status(400).json({ error: "Thiếu exam_id hoặc user_id" });
@@ -111,6 +111,30 @@ app.post("/autosave", async (req, res) => {
     } catch (err: any) {
         console.error("!!! Lỗi lưu nháp:", err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// --- 1.8 ENDPOINT LẤY BẢN NHÁP (PHIÊN BẢN FIX LỖI ÉP KIỂU) ---
+app.get("/draft/:exam_id/:user_id", async (req, res) => {
+    const { exam_id, user_id } = req.params;
+
+    try {
+        // Vì trong DB ông để là TEXT nên ở đây mình để nguyên, không thêm ::uuid
+        const draft = await pool.query(
+            "SELECT answers, duration_seconds FROM submissions WHERE exam_id = $1 AND user_id = $2 ORDER BY created_at DESC LIMIT 1",
+            [exam_id, user_id]
+        );
+        
+        if (draft.rows.length > 0) {
+            // Có dữ liệu thì trả về object đầu tiên
+            return res.status(200).json(draft.rows[0]);
+        } else {
+            // Không có thì trả về null nhưng vẫn báo 200 OK
+            return res.status(200).json(null);
+        }
+    } catch (err: any) {
+        console.error("❌ LỖI BACKEND:", err.message);
+        return res.status(500).json({ error: err.message });
     }
 });
 
